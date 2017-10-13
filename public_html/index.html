@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
     <head>
         <meta charset="utf-8">
         <script src="d3/d3.v2.min.js"></script>
@@ -21,7 +22,9 @@
                             </label>
                             <label>Ano
                                 <select id="year"></select>
-                            </label><span id="status"></span>
+                            </label><!span id="status"><!/span>
+                            <button id="animateButton" type="button" class="btn btn-default" onclick="eventAnimate()">Animar</button>
+                            <button id="cancelAnimationButton" type="button" style="display:none" class="btn btn-default" onclick="cancelAnimation()">Parar Animação</button>
                         </p>
                     </form>
                 </div>
@@ -47,7 +50,7 @@
                         As cores foram geradas por <a href="http://colorbrewer2.org">colorbrewer</a>.
                         Os dados sobre homicídios foram obtidos do <a href="http://www.saude.gov.br">Ministério da Saúde</a>, 
                         enquanto que os demais dados foram obtidos do <a href="http://www.ibge.gov.br">IBGE</a>. 
-                        Agradecimento especial aos amigos que contribuíram para o projeto com sugestões ou até me ajudando a depurar o código: Abelardo Mota, Felipe Martins, Paulo Sobreira, Erasto Alves, Ricardo Bustamante, George Gomes e Melo Jr., dentre outros.
+                        Agradecimento especial aos amigos que contribuíram para o projeto com sugestões ou até me ajudando a depurar o código: Lucas Falcão, Abelardo Mota, Felipe Martins, Paulo Sobreira, Erasto Alves, Ricardo Bustamante, George Gomes e Melo Jr., dentre outros.
                         <br>
                         José Florencio de Queiroz Neto<br>
                         florencioq \ gmail.com
@@ -168,7 +171,7 @@
 
 
                 window.onhashchange = function () {
-                    parseHash();
+                    parseHash(true);
                     update();
                 };
                 var segmentized = location.search === "?segmentized",
@@ -198,7 +201,7 @@
                     }).attr("fill", "#fafafa").attr("d", path);
                     counties.append("title");
 
-                    parseHash();
+                    parseHash(true);
                 }
 
                 function reset() {
@@ -240,7 +243,7 @@
                             .sort(d3.ascending),
                             lo = values[0],
                             hi = values[values.length - 1];
-
+                    
                     var color = d3.scale.linear()
                             .range(colors)
                             .domain(lo < 0 ? [lo, 0, hi] : [lo, d3.mean(values), hi]);
@@ -275,21 +278,27 @@
                             .attr("d", carto.path);
 
                     var delta = (Date.now() - start) / 1000;
-                    stat.text(["calculado em ", delta.toFixed(1), "segundos"].join(" "));
+                    //stat.text(["calculado em ", delta.toFixed(1), "segundos"].join(" "));
                     body.classed("updating", false);
                 }
 
 
-                var deferredUpdate = (function () {
+                var deferredUpdate = (function (showCalcTime) {
                     var timeout;
-                    return function () {
-                        var args = arguments;
-                        clearTimeout(timeout);
-                        stat.text("calculando...");
-                        return timeout = setTimeout(function () {
-                            update.apply(null, arguments);
-                        }, 10);
-                    };
+                    if(showCalcTime){
+                        return function () {
+                            /*var args = arguments;
+                            clearTimeout(timeout);
+                            stat.text("calculando...");
+                            return timeout = setTimeout(function () {
+                                update.apply(null, arguments);
+                            }, 10);*/
+                        };
+                    }else{
+                        return function(){
+                            
+                        }                            
+                    }
                 })();
 
                 var hashish = d3.selectAll("a.hashish")
@@ -297,14 +306,15 @@
                             return this.href;
                         });
 
-                function parseHash() {
+                function parseHash(showCalcTime) {
+                    
                     var parts = location.hash.substr(1).split("/"),
                             desiredFieldId = parts[0],
                             desiredYear = +parts[1];
 
                     field = fieldsById[desiredFieldId] || fields[0];
-                    year = (years.indexOf(desiredYear) > -1) ? desiredYear : years[0];
-
+                    //year = (years.indexOf(desiredYear) > -1) ? desiredYear : years[0];
+                    year = +document.getElementById("year").value;
 
                     fieldSelect.property("selectedIndex", fields.indexOf(field));
 
@@ -315,8 +325,8 @@
                         resetBar();
 
                     } else {
-
                         if (field.years) {
+                            
                             if (field.years.indexOf(year) === -1) {
                                 year = field.years[0];
                             }
@@ -328,12 +338,13 @@
                             yearSelect.selectAll("option")
                                     .attr("disabled", null);
                         }
-
+                        
                         yearSelect
                                 .property("selectedIndex", years.indexOf(year))
                                 .attr("disabled", null);
-
-                        deferredUpdate();
+                        
+                        deferredUpdate(showCalcTime);
+                        
                         changeY(field.key.replace("%d", year));
                         location.replace("#" + [field.id, year].join("/"));
 
@@ -552,8 +563,42 @@
                             .text("");
 
                 }
-
-
+                    
+                var animacao;
+                
+                function animate(initialYear,finalYear,timeInMili, primeiraExecucao){
+                    
+                    if(initialYear>finalYear){ cancelAnimation(); return;};
+                    
+                    animacao = setTimeout(function(){
+                                                document.getElementById('year').value = initialYear;
+                                                parseHash(false);
+                                                animate(initialYear+1,finalYear,timeInMili,false);
+                                            },
+                                            (function(){                                             
+                                                if(primeiraExecucao){
+                                                    return 0;
+                                                }else{ 
+                                                    return timeInMili;
+                                                }
+                                            })()
+                                           );
+                }
+                
+                function eventAnimate(){
+                    document.getElementById("animateButton").style.display = "none";
+                    document.getElementById("cancelAnimationButton").style.display = "inline";
+                    animate(years[0],years[years.length-1],3000,true);
+                    
+                }
+                
+                function cancelAnimation(){
+                    document.getElementById("cancelAnimationButton").style.display = "none";
+                    document.getElementById("animateButton").style.display = "inline";
+                    clearTimeout(animacao);
+                    
+                }
+                
 
             </script>
     </body>
