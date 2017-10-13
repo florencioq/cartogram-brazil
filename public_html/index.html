@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <script src="d3/d3.v2.min.js"></script>
+        <script src="lib/colorbrewer.js"></script>
+        <script src="lib/topojson.js"></script>
+        <script src="cartogram.js"></script>
+        <link rel="stylesheet" href="css/main.css">
+        <link rel="stylesheet" href="css/bootstrap.min.css">
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="text-center">O Brasil em Cartogramas</h1>
+            <div class="row">
+                <div class="text-center col-md-12">
+                    <form>
+                        <p>
+                            <label>Escalar por
+                                <select id="field"></select>
+                            </label>
+                            <label>Ano
+                                <select id="year"></select>
+                            </label><span id="status"></span>
+                        </p>
+                    </form>
+                </div>
+            </div>
+            <div class="row">
+                <div class="text-center col-md-12" id="map-container">
+                    <svg id="map"></svg>
+                </div>
+            </div>
+            <div class="row">
+                <div class="text-center col-md-12" id="bar-container">
+                    <label><input type="checkbox" id="check"> Ordenar valores</label>
+                    <svg id="bar"></svg>
+                </div>
+            </div>
+            <div class="row">
+                 <div class="col-md-12" id="about">
+                    <h2>Sobre</h2>
+                    <p>Este trabalho é uma reescrita do trabalho original de 
+                        <a href="https://twitter.com/shawnbot">Shawn Allen</a> e do seu 
+                        <a href="http://prag.ma/code/d3-cartogram/">exemplo</a> de como fazer um cartograma. 
+                        As barras verticais são uma adaptação do trabalho de <a href="https://9bfce43c929576543026046f1d1eb94bd97f3bcd.googledrive.com/host/0B5vtcGFLVUFgSXhjMEU5RTBNaUU/">Andrew Errity</a>.
+                        As cores foram geradas por <a href="http://colorbrewer2.org">colorbrewer</a>.
+                        Os dados sobre homicídios foram obtidos do <a href="http://www.saude.gov.br">Ministério da Saúde</a>, 
+                        enquanto que os demais dados foram obtidos do <a href="http://www.ibge.gov.br">IBGE</a>. 
+                        Agradecimento especial aos amigos que contribuíram para o projeto com sugestões ou até me ajudando a depurar o código: Abelardo Mota, Felipe Martins, Paulo Sobreira, Erasto Alves, Ricardo Bustamante, George Gomes e Melo Jr., dentre outros.
+                        <br>
+                        José Florencio de Queiroz Neto<br>
+                        florencioq \ gmail.com
+                    </p>
+                </div>
+            </div>
+
+            <script>
+                if (!document.createElementNS) {
+                    document.getElementsByTagName("form")[0].style.display = "none";
+                }
+                var percent = (function () {
+                    var fmt = d3.format(".2f");
+                    return function (n) {
+                        return fmt(n) + "%";
+                    };
+                })(),
+                        fields = [{
+                                name: "(sem escala)",
+                                id: "none"
+                            }, {
+                                name: "População",
+                                id: "populacao",
+                                key: "POP%d",
+                                years: [2014]
+                            }, {
+                                name: "Taxa de homicídios por 100.000 habitantes",
+                                id: "homicidios",
+                                key: "HOMI%d",
+                                years: [1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014]
+                            }, ],
+                        years = [1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014],
+                        fieldsById = d3.nest().key(function (d) {
+                    return d.id;
+                }).rollup(function (d) {
+                    return d[0];
+                }).map(fields),
+                        field = fields[0],
+                        year = years[0],
+                        colors = colorbrewer.RdYlBu[3].reverse().map(function (rgb) {
+                    return d3.hsl(rgb);
+                });
+                var body = d3.select("body");
+                stat = d3.select("#status");
+                var fieldSelect = d3.select("#field").on("change", function (e) {
+                    field = fields[this.selectedIndex];
+                    location.hash = "#" + [field.id, year].join("/");
+                });
+                fieldSelect.selectAll("option").data(fields).enter().append("option").attr("value", function (d) {
+                    return d.id;
+                }).text(function (d) {
+                    return d.name;
+                });
+                var yearSelect = d3.select("#year").on("change", function (e) {
+                    year = years[this.selectedIndex];
+                    location.hash = "#" + [field.id, year].join("/");
+                });
+                yearSelect.selectAll("option").data(years).enter().append("option").attr("value", function (y) {
+                    return y;
+                }).text(function (y) {
+                    return y;
+                })
+                var map = d3.select("#map");
+
+                //               var proj = d3.geo.albers().origin([-45.9, -5.3]).scale(500).translate([500, 150]);
+
+                //Map dimensions (in pixels)
+                var width = 600,
+                        height = 594;
+
+                var proj = d3.geo.mercator()
+                        .scale(3400)
+                        .translate([970, 80]) //translate to center the map in view
+
+                var path = d3.geo.path().projection(proj);
+
+                var layer = map.append("g").attr("id", "layer"),
+                        counties = layer.append("g").attr("id", "counties").selectAll("path");
+
+                var topology, geometries, rawData, dataById = {},
+                        carto = d3.cartogram().projection(proj).properties(function (d) {
+                    return dataById[d.id];
+                }).value(function (d) {
+                    return +d.properties[field];
+                });
+
+                /*
+                 ********Bar chart setup*********
+                 */
+                var margin = {top: 10, right: 20, bottom: 120, left: 80},
+                width = 960 - margin.left - margin.right,
+                        height = 250 - margin.top - margin.bottom;
+
+                var formatPercent = d3.format("");
+
+                var x = d3.scale.ordinal()
+                        .rangeRoundBands([0, width], .1, 1);
+
+                var y = d3.scale.linear()
+
+                        .range([height, 0]);
+
+                var xAxis = d3.svg.axis()
+                        .scale(x)
+                        .orient("bottom");
+
+                var yAxis = d3.svg.axis()
+                        .scale(y)
+                        .orient("left")
+                        .tickFormat(formatPercent);
+
+                var svg = d3.select("#bar").append("svg")
+                        .attr("width", width + margin.left + margin.right)
+                        .attr("height", height + margin.top + margin.bottom)
+                        .append("g")
+                        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+                /*END OF BAR CHART SETUP*/
+
+
+                window.onhashchange = function () {
+                    parseHash();
+                    update();
+                };
+                var segmentized = location.search === "?segmentized",
+                        url = ["data", segmentized ? "brasil2.topojson" : "brasil2.topojson"].join("/");
+                d3.json(url, function (topo) {
+                    topology = topo;
+                    geometries = topology.objects.brazil.geometries;
+                    d3.csv("data/data.csv", function (data) {
+                        rawData = data;
+                        dataById = d3.nest().key(function (d) {
+                            return d.NAME;
+                        }).rollup(function (d) {
+                            return d[0];
+                        })
+                                .map(data);
+                        initBar(data);
+                        init();
+
+                    });
+                });
+
+                function init() {
+                    var features = carto.features(topology, geometries),
+                            path = d3.geo.path().projection(proj);
+                    counties = counties.data(features).enter().append("path").attr("class", "county").attr("id", function (d) {
+                        return d.properties.NAME;
+                    }).attr("fill", "#fafafa").attr("d", path);
+                    counties.append("title");
+
+                    parseHash();
+                }
+
+                function reset() {
+                    stat.text("");
+                    body.classed("updating", false);
+
+                    var features = carto.features(topology, geometries),
+                            path = d3.geo.path()
+                            .projection(proj);
+
+                    counties.data(features)
+                            .transition()
+                            .duration(750)
+                            .ease("linear")
+                            .attr("fill", "#fafafa")
+                            .attr("d", path);
+
+                    counties.select("title")
+                            .text(function (d) {
+                                return d.properties.NAME;
+                            });
+
+                }
+
+                function update() {
+                    var start = Date.now();
+                    body.classed("updating", true);
+
+                    var key = field.key.replace("%d", year),
+                            fmt = (typeof field.format === "function") ? field.format : d3.format(field.format || ","),
+                            value = function (d) {
+                                return +d.properties[key];
+                            },
+                            values = counties.data()
+                            .map(value)
+                            .filter(function (n) {
+                                return !isNaN(n);
+                            })
+                            .sort(d3.ascending),
+                            lo = values[0],
+                            hi = values[values.length - 1];
+
+                    var color = d3.scale.linear()
+                            .range(colors)
+                            .domain(lo < 0 ? [lo, 0, hi] : [lo, d3.mean(values), hi]);
+
+                    // normalize the scale to positive numbers
+                    var scale = d3.scale.linear()
+                            .domain([lo, hi])
+                            // was range([1, 1000])
+                            .range([1, 100]);
+
+                    // tell the cartogram to use the scaled values
+                    carto.value(function (d) {
+                        return scale(value(d));
+                    });
+
+                    // generate the new features, pre-projected
+                    var features = carto(topology, geometries).features;
+
+                    // update the data
+                    counties.data(features)
+                            .select("title")
+                            .text(function (d) {
+                                return [d.properties.NAME, fmt(value(d))].join(": ");
+                            });
+
+                    counties.transition()
+                            .duration(750)
+                            .ease("linear")
+                            .attr("fill", function (d) {
+                                return color(value(d));
+                            })
+                            .attr("d", carto.path);
+
+                    var delta = (Date.now() - start) / 1000;
+                    stat.text(["calculado em ", delta.toFixed(1), "segundos"].join(" "));
+                    body.classed("updating", false);
+                }
+
+
+                var deferredUpdate = (function () {
+                    var timeout;
+                    return function () {
+                        var args = arguments;
+                        clearTimeout(timeout);
+                        stat.text("calculando...");
+                        return timeout = setTimeout(function () {
+                            update.apply(null, arguments);
+                        }, 10);
+                    };
+                })();
+
+                var hashish = d3.selectAll("a.hashish")
+                        .datum(function () {
+                            return this.href;
+                        });
+
+                function parseHash() {
+                    var parts = location.hash.substr(1).split("/"),
+                            desiredFieldId = parts[0],
+                            desiredYear = +parts[1];
+
+                    field = fieldsById[desiredFieldId] || fields[0];
+                    year = (years.indexOf(desiredYear) > -1) ? desiredYear : years[0];
+
+
+                    fieldSelect.property("selectedIndex", fields.indexOf(field));
+
+                    if (field.id === "none") {
+
+                        yearSelect.attr("disabled", "disabled");
+                        reset();
+                        resetBar();
+
+                    } else {
+
+                        if (field.years) {
+                            if (field.years.indexOf(year) === -1) {
+                                year = field.years[0];
+                            }
+                            yearSelect.selectAll("option")
+                                    .attr("disabled", function (y) {
+                                        return (field.years.indexOf(y) === -1) ? "disabled" : null;
+                                    });
+                        } else {
+                            yearSelect.selectAll("option")
+                                    .attr("disabled", null);
+                        }
+
+                        yearSelect
+                                .property("selectedIndex", years.indexOf(year))
+                                .attr("disabled", null);
+
+                        deferredUpdate();
+                        changeY(field.key.replace("%d", year));
+                        location.replace("#" + [field.id, year].join("/"));
+
+
+                        hashish.attr("href", function (href) {
+                            return href + location.hash;
+                        });
+                    }
+                }
+
+
+
+
+                function initBar(data) {
+
+                    data.forEach(function (d) {
+                        d.HOMI1989 = +d.HOMI1989;
+                        d.HOMI1990 = +d.HOMI1990;
+                        d.HOMI1991 = +d.HOMI1991;
+                        d.HOMI1992 = +d.HOMI1992;
+                        d.HOMI1993 = +d.HOMI1993;
+                        d.HOMI1994 = +d.HOMI1994;
+                        d.HOMI1995 = +d.HOMI1995;
+                        d.HOMI1996 = +d.HOMI1996;
+                        d.HOMI1997 = +d.HOMI1997;
+                        d.HOMI1998 = +d.HOMI1998;
+                        d.HOMI1999 = +d.HOMI1999;
+                        d.HOMI2000 = +d.HOMI2000;
+                        d.HOMI2001 = +d.HOMI2001;
+                        d.HOMI2002 = +d.HOMI2002;
+                        d.HOMI2003 = +d.HOMI2003;
+                        d.HOMI2004 = +d.HOMI2004;
+                        d.HOMI2005 = +d.HOMI2005;
+                        d.HOMI2006 = +d.HOMI2006;
+                        d.HOMI2007 = +d.HOMI2007;
+                        d.HOMI2008 = +d.HOMI2008;
+                        d.HOMI2009 = +d.HOMI2009;
+                        d.HOMI2010 = +d.HOMI2010;
+                        d.HOMI2011 = +d.HOMI2011;
+                        d.HOMI2012 = +d.HOMI2012;
+                        d.HOMI2013 = +d.HOMI2013;
+                        d.HOMI2014 = +d.HOMI2014;
+                        d.POP2014 = +d.POP2014;
+                    });
+
+
+                    x.domain(data.map(function (d) {
+                        return d.NAME;
+                    }));
+                    y.domain([0, 0]);
+
+
+                    svg.append("g")
+                            .attr("class", "x axis")
+                            .attr("transform", "translate(0," + height + ")")
+                            .call(xAxis);
+
+                    svg.selectAll("text")
+                            .style("text-anchor", "end")
+                            .attr("transform", function (d) {
+                                return "translate(" + -13 + ", " + 10 + ") rotate(" + 270 + ")"
+                            });
+
+                    svg.append("g")
+                            .attr("class", "y axis")
+                            .call(yAxis)
+                            .append("text")
+                            .attr("transform", "rotate(-90)")
+                            .attr("y", 6)
+                            .attr("dy", ".71em")
+                            .attr("class", "y label")
+                            .style("text-anchor", "end")
+                            .text("");
+
+                    svg.selectAll(".bar")
+                            .data(data)
+                            .enter().append("rect")
+                            .attr("class", "bar")
+                            .attr("x", function (d) {
+                                return x(d.NAME);
+                            })
+                            .attr("width", x.rangeBand())
+                            .attr("y", function (d) {
+                                return y(0);
+                            })
+                            .attr("height", function (d) {
+                                return height - y(0);
+                            });
+
+                    d3.select("input").on("change", sortX);
+
+
+
+                    /*
+                     var sortTimeout = setTimeout(function() {
+                     d3.select("input").property("checked", true).each(change);
+                     }, 2000);
+                     */
+
+                }
+                function sortX() {
+                    //clearTimeout(sortTimeout);
+
+                    var colName = field.key.replace("%d", year);
+                    var data = [];
+                    svg.selectAll(".bar").each(function (d) {
+                        data.push(d);
+                    });
+                    // Copy-on-write since tweens are evaluated after a delay.
+
+                    var x0 = x.domain(data.sort(document.getElementById('check').checked
+                            ? function (a, b) {
+                                return b[colName] - a[colName];
+                            }
+                    : function (a, b) {
+                        return d3.ascending(a.NAME, b.NAME);
+                    })
+                            .map(function (d) {
+                                return d.NAME;
+                            }))
+                            .copy();
+
+                    var transition = svg.transition().duration(750),
+                            delay = function (d, i) {
+                                return i * 50;
+                            };
+
+                    transition.selectAll(".bar")
+                            .delay(delay)
+                            .attr("x", function (d) {
+                                return x0(d.NAME);
+                            });
+
+                    transition.select(".x.axis")
+                            .call(xAxis)
+                            .selectAll("g")
+                            .delay(delay);
+
+                    transition.select(".x.axis").selectAll("text")
+                            .style("text-anchor", "end")
+                            .attr("transform", function (d) {
+                                return "translate(" + -13 + ", " + 10 + ") rotate(" + 270 + ")"
+                            });
+                }
+
+                function changeY(colNames) {
+
+                    var data = [];
+                    svg.selectAll(".bar").each(function (d) {
+                        data.push(d);
+                    });
+
+
+                    // Copy-on-write since tweens are evaluated after a delay.
+                    var y0 = y.domain([0, d3.max(data, function (d) {
+                            return d[colNames];
+                        })])
+                            .copy();
+
+                    var transition = svg.transition().duration(750),
+                            delay = function (d, i) {
+                                return i * 50;
+                            };
+
+                    transition.selectAll(".bar")
+                            .delay(delay)
+                            .attr("y", function (d) {
+                                return y0(d[colNames]);
+                            })
+                            .attr("height", function (d) {
+                                return height - y0(d[colNames])
+                            }).each("end", sortX);
+
+                    transition.select(".y.axis")
+                            .call(yAxis)
+                            .selectAll("g")
+                            .delay(delay)
+                            ;
+
+                    transition.select(".y.label")
+                            .style("text-anchor", "end")
+                            .text(colNames);
+
+                }
+
+
+                function resetBar() {
+
+
+                    // Copy-on-write since tweens are evaluated after a delay.
+                    var y0 = y.domain([0, 0])
+                            .copy();
+
+                    var transition = svg.transition().duration(750),
+                            delay = function (d, i) {
+                                return i * 50;
+                            };
+
+                    transition.selectAll(".bar")
+                            .delay(delay)
+                            .attr("y", function (d) {
+                                return y0(0);
+                            })
+                            .attr("height", function (d) {
+                                return height - y0(0)
+                            });
+
+                    transition.select(".y.axis")
+                            .call(yAxis)
+                            .selectAll("g")
+                            .delay(delay)
+                            ;
+
+                    transition.select(".y.label")
+                            .style("text-anchor", "end")
+                            .text("");
+
+                }
+
+
+
+            </script>
+    </body>
+</html>
