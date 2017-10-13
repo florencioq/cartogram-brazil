@@ -1,4 +1,4 @@
 # cartogram-brazil
 Cartograms about Brazil
 
-![Gaussian Process](./Cartogram.png)
+![Cartogram](./Cartogram.png)
